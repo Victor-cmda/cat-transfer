@@ -1,29 +1,67 @@
 ﻿using Domain.Enumerations;
 using Domain.Events;
 using Domain.ValueObjects;
-using System.Drawing;
 
 namespace Domain.Aggregates.FileTransfer
 {
     public sealed class FileTransfer
     {
         private readonly List<ChunkState> _chunks = new();
+        private readonly HashSet<NodeId> _sources = new();
+
         public FileId Id { get; }
         public FileMeta Meta { get; }
         public TransferStatus Status { get; private set; } = TransferStatus.Pending;
+        public NodeId? Initiator { get; private set; }
+        public DateTimeOffset CreatedAt { get; }
+        public DateTimeOffset? StartedAt { get; private set; }
+        public DateTimeOffset? CompletedAt { get; private set; }
 
         public IReadOnlyList<ChunkState> Chunks => _chunks.AsReadOnly();
+        public IReadOnlySet<NodeId> Sources => _sources.ToHashSet();
 
-        public FileTransfer(FileId id, FileMeta meta, IEnumerable<ChunkState> chunks)
+        public FileTransfer(FileId id, FileMeta meta, IEnumerable<ChunkState> chunks, NodeId? initiator = null)
         {
             Id = id;
             Meta = meta;
+            Initiator = initiator;
+            CreatedAt = DateTimeOffset.UtcNow;
             _chunks.AddRange(chunks);
         }
 
-        public void Start()
+        public void AddSource(NodeId sourceNode)
         {
-            Status = TransferStatus.InProgress;
+            if (_sources.Add(sourceNode))
+            {
+                foreach (var chunk in _chunks.Where(c => !c.Received))
+                {
+                    chunk.AddAvailableSource(sourceNode);
+                }
+                DomainEvents.Raise(new FileTransferSourceAdded(Id, sourceNode));
+            }
+        }
+
+        public void RemoveSource(NodeId sourceNode)
+        {
+            if (_sources.Remove(sourceNode))
+            {
+                foreach (var chunk in _chunks)
+                {
+                    chunk.RemoveAvailableSource(sourceNode);
+                }
+                DomainEvents.Raise(new FileTransferSourceRemoved(Id, sourceNode));
+            }
+        }
+
+        public void Start(NodeId? initiator = null)
+        {
+            if (Status == TransferStatus.Pending)
+            {
+                Status = TransferStatus.InProgress;
+                StartedAt = DateTimeOffset.UtcNow;
+                Initiator ??= initiator;
+                DomainEvents.Raise(new FileTransferStarted(Id, Initiator ?? NodeId.NewGuid(), Meta.Size));
+            }
         }
 
         public void Pause(NodeId sender)
@@ -31,8 +69,8 @@ namespace Domain.Aggregates.FileTransfer
             if (Status == TransferStatus.InProgress)
             {
                 Status = TransferStatus.Paused;
+                DomainEvents.Raise(new FileTransferPaused(Id, sender));
             }
-            DomainEvents.Raise(new FileTransferPaused(Id, sender));
         }
 
         public void Resume(NodeId sender)
@@ -40,17 +78,18 @@ namespace Domain.Aggregates.FileTransfer
             if (Status == TransferStatus.Paused)
             {
                 Status = TransferStatus.InProgress;
+                DomainEvents.Raise(new FileTransferResumed(Id, sender, Meta.Size));
             }
-            DomainEvents.Raise(new FileTransferResumed(Id, sender, Meta.Size));
         }
 
         public void Complete()
         {
-            if (Status == TransferStatus.InProgress)
+            if (Status == TransferStatus.InProgress && AllChunksReceived())
             {
                 Status = TransferStatus.Completed;
+                CompletedAt = DateTimeOffset.UtcNow;
+                DomainEvents.Raise(new FileTransferCompleted(Id, CompletedAt.Value));
             }
-            DomainEvents.Raise(new FileTransferCompleted(Id, DateTimeOffset.UtcNow));
         }
 
         public void Fail(string reason)
@@ -58,25 +97,98 @@ namespace Domain.Aggregates.FileTransfer
             if (Status != TransferStatus.Completed)
             {
                 Status = TransferStatus.Failed;
+                DomainEvents.Raise(new FileTransferFailed(Id, reason));
             }
-            DomainEvents.Raise(new FileTransferFailed(Id, reason));
         }
 
-        public void MarkChunckReceived(ChunkId id)
+        public void Cancel(NodeId sender)
         {
-            var chunk = _chunks.Find(x => x.Id.Equals(id)) ?? throw new InvalidOperationException($"Chunk with ID {id} not found in transfer {Id}.");
+            if (Status == TransferStatus.InProgress || Status == TransferStatus.Paused)
+            {
+                Status = TransferStatus.Failed; // Using Failed as cancelled state
+                DomainEvents.Raise(new FileTransferCancelled(Id, sender));
+            }
+        }
 
-            chunk.MarkAsReceived();
-            if (AllChuksReceived())
+        public void MarkChunkReceived(ChunkId chunkId, NodeId? sourceNode = null)
+        {
+            var chunk = _chunks.Find(x => x.Id.Equals(chunkId)) 
+                ?? throw new InvalidOperationException($"Chunk with ID {chunkId} not found in transfer {Id}.");
+
+            chunk.MarkAsReceived(sourceNode);
+            
+            var completedChunks = _chunks.Count(c => c.Received);
+            var totalChunks = _chunks.Count;
+            var transferredBytes = ByteSize.FromMegaBytes((completedChunks * Meta.ChunkSize) / (1024.0 * 1024.0));
+            
+            DomainEvents.Raise(new FileTransferProgress(Id, transferredBytes, Meta.Size));
+
+            if (AllChunksReceived())
             {
                 Complete();
             }
         }
 
-
-        private bool AllChuksReceived()
+        public bool RequestNextChunk(NodeId requestingNode)
         {
-            return _chunks.TrueForAll(x => x.Received);
+            var availableChunk = GetNextChunkToRequest(requestingNode);
+            if (availableChunk == null)
+                return false;
+
+            return availableChunk.RequestFromSource(requestingNode);
         }
+
+        public void SetChunkPriority(ChunkId chunkId, Priority priority)
+        {
+            var chunk = _chunks.Find(x => x.Id.Equals(chunkId));
+            chunk?.SetPriority(priority);
+        }
+
+        public void HandleChunkRequestFailed(ChunkId chunkId, string reason)
+        {
+            var chunk = _chunks.Find(x => x.Id.Equals(chunkId));
+            chunk?.MarkRequestFailed(reason);
+        }
+
+        private ChunkState? GetNextChunkToRequest(NodeId requestingNode)
+        {
+            return _chunks
+                .Where(c => !c.Received && c.AvailableFrom.Contains(requestingNode) && c.CurrentSource == null)
+                .OrderByDescending(c => c.Priority)
+                .ThenBy(c => c.RetryCount) 
+                .FirstOrDefault();
+        }
+
+        private bool AllChunksReceived() => _chunks.TrueForAll(x => x.Received);
+
+        public double CompletionPercentage
+        {
+            get
+            {
+                if (_chunks.Count == 0) return 0;
+                return (_chunks.Count(c => c.Received) / (double)_chunks.Count) * 100;
+            }
+        }
+
+        public ByteSize TransferredBytes
+        {
+            get
+            {
+                var completedChunks = _chunks.Count(c => c.Received);
+                return new ByteSize(completedChunks * Meta.ChunkSize);
+            }
+        }
+
+        public TimeSpan? TransferDuration
+        {
+            get
+            {
+                if (StartedAt == null) return null;
+                var endTime = CompletedAt ?? DateTimeOffset.UtcNow;
+                return endTime - StartedAt.Value;
+            }
+        }
+
+        public bool HasAvailableSources => _sources.Count > 0;
     }
 }

@@ -1,6 +1,6 @@
 ﻿using Domain.Aggregates.FileTransfer;
 using Domain.Enumerations;
-using Domain.Interfaces;
+using Domain.Events;
 using Domain.ValueObjects;
 
 namespace Domain.Events
@@ -35,6 +35,10 @@ namespace Domain.Events
     public sealed record HandshakeCompleted(NodeId peerId, EncryptionKey key) : IDomainEvent;
     public sealed record HandshakeFailed(NodeId peerId, string reason) : IDomainEvent;
     public sealed record EncryptionKeyRotated(NodeId peerId, EncryptionKey newKey) : IDomainEvent;
+    public sealed record KeyExchangeInitiated(NodeId peerId, int publicKeySize) : IDomainEvent;
+    public sealed record KeyExchangeCompleted(NodeId peerId, EncryptionKey sharedKey) : IDomainEvent;
+    public sealed record KeyExchangeFailed(NodeId peerId, string reason) : IDomainEvent;
+    public sealed record KeyExchangeResponded(NodeId peerId, EncryptionKey sharedKey) : IDomainEvent;
 
     public sealed record NetworkTopologyChanged(NetworkTopology newTopology) : IDomainEvent;
     public sealed record PeerListReceived(NodeId fromPeer, IReadOnlyList<NodeId> peerList) : IDomainEvent;
@@ -45,4 +49,6 @@ namespace Domain.Events
     public sealed record FileAvailabilityUpdated(FileId fileId, NodeId peerId, bool available) : IDomainEvent;
     public sealed record PotentialPeerDiscovered(NodeId peerId, NodeId discoveredBy) : IDomainEvent;
     public sealed record BroadcastRequested(string eventType, IReadOnlyList<NodeId> targetPeers) : IDomainEvent;
+    public sealed record PeerDiscoveryError(string message) : IDomainEvent;
+    public sealed record PresenceAnnounced(NodeId nodeId, PeerAddress address) : IDomainEvent;
 }

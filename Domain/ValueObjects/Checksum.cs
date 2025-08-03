@@ -11,7 +11,7 @@ namespace Domain.ValueObjects
 
         public override string ToString()
         {
-            return $"{algorithm}:{Hex}";
+            return $"{algorithm}:{Hex()}";
         }
     }
 }

@@ -105,7 +105,7 @@ namespace Domain.Aggregates.FileTransfer
         {
             if (Status == TransferStatus.InProgress || Status == TransferStatus.Paused)
             {
-                Status = TransferStatus.Failed; // Using Failed as cancelled state
+                Status = TransferStatus.Failed;
                 DomainEvents.Raise(new FileTransferCancelled(Id, sender));
             }
         }
@@ -119,7 +119,7 @@ namespace Domain.Aggregates.FileTransfer
             
             var completedChunks = _chunks.Count(c => c.Received);
             var totalChunks = _chunks.Count;
-            var transferredBytes = ByteSize.FromMegaBytes((completedChunks * Meta.ChunkSize) / (1024.0 * 1024.0));
+            var transferredBytes = new ByteSize(completedChunks * Meta.ChunkSize);
             
             DomainEvents.Raise(new FileTransferProgress(Id, transferredBytes, Meta.Size));
 

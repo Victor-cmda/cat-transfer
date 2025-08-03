@@ -1,7 +1,16 @@
 namespace Domain.ValueObjects
 {
-    public readonly record struct EncryptionKey(byte[] key, string algorithm)
+    public readonly record struct EncryptionKey
     {
+        public byte[] Key { get; }
+        public string Algorithm { get; }
+
+        private EncryptionKey(byte[] key, string algorithm)
+        {
+            Key = key;
+            Algorithm = algorithm;
+        }
+
         public static EncryptionKey Create(byte[] key, string algorithm)
         {
             if (key == null || key.Length == 0)
@@ -13,7 +22,7 @@ namespace Domain.ValueObjects
             return new EncryptionKey((byte[])key.Clone(), algorithm);
         }
 
-        public string ToBase64() => Convert.ToBase64String(key);
+        public string ToBase64() => Convert.ToBase64String(Key);
 
         public static EncryptionKey FromBase64(string base64Key, string algorithm)
         {
@@ -29,6 +38,6 @@ namespace Domain.ValueObjects
             return Create(keyArray, algorithm);
         }
 
-        public override string ToString() => $"{algorithm}:{ToBase64()[..8]}...";
+        public override string ToString() => $"{Algorithm}:{ToBase64()[..8]}...";
     }
 }

@@ -9,11 +9,13 @@ namespace Domain.Aggregates.FileTransfer
         public ChunkId Id { get; }
         public bool Received { get; private set; }
         public DateTimeOffset? ReceivedAt { get; private set; }
-        public HashSet<NodeId> AvailableFrom { get; } = new();
+        private readonly HashSet<NodeId> _availableFrom = new();
         public NodeId? CurrentSource { get; private set; }
         public int RetryCount { get; private set; }
         public Priority Priority { get; private set; } = Priority.Normal;
         public DateTimeOffset? LastRequestedAt { get; private set; }
+
+        public IReadOnlySet<NodeId> AvailableFrom => _availableFrom.ToHashSet();
 
         public ChunkState(ChunkId id, Priority priority = Priority.Normal)
         {
@@ -23,7 +25,7 @@ namespace Domain.Aggregates.FileTransfer
 
         public void AddAvailableSource(NodeId nodeId)
         {
-            if (AvailableFrom.Add(nodeId))
+            if (_availableFrom.Add(nodeId))
             {
                 DomainEvents.Raise(new ChunkSourceDiscovered(Id, nodeId));
             }
@@ -31,7 +33,7 @@ namespace Domain.Aggregates.FileTransfer
 
         public void RemoveAvailableSource(NodeId nodeId)
         {
-            if (AvailableFrom.Remove(nodeId))
+            if (_availableFrom.Remove(nodeId))
             {
                 if (CurrentSource?.Equals(nodeId) == true)
                 {
@@ -43,7 +45,7 @@ namespace Domain.Aggregates.FileTransfer
 
         public bool RequestFromSource(NodeId sourceNode)
         {
-            if (!AvailableFrom.Contains(sourceNode) || Received)
+            if (!_availableFrom.Contains(sourceNode) || Received)
                 return false;
 
             CurrentSource = sourceNode;
@@ -81,11 +83,11 @@ namespace Domain.Aggregates.FileTransfer
 
         public bool CanRetry(int maxRetries) => RetryCount < maxRetries && !Received;
 
-        public bool HasAvailableSources => AvailableFrom.Count > 0;
+        public bool HasAvailableSources => _availableFrom.Count > 0;
 
         public NodeId? GetBestAvailableSource()
         {
-            return AvailableFrom.FirstOrDefault(node => !node.Equals(CurrentSource));
+            return _availableFrom.FirstOrDefault(node => !node.Equals(CurrentSource));
         }
 
         public bool IsRequestTimeout(TimeSpan timeout)

@@ -11,9 +11,11 @@ namespace Domain.ValueObjects
 
         public static FileId FromContent(ReadOnlySpan<byte> content)
         {
-            Span<byte> hash = stackalloc byte[32];
-            Shake256.HashData(content, hash);
+            using var sha256 = SHA256.Create();
+            var hash = sha256.ComputeHash(content.ToArray());
             return FromHash(hash);
         }
+
+        public override string ToString() => value;
     }
 }

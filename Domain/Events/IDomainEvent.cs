@@ -1,4 +1,4 @@
-﻿namespace Domain.Interfaces
+﻿namespace Domain.Events
 {
     public interface IDomainEvent { }
 }

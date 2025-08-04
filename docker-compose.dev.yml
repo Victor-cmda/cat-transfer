@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # =================================================================
+  # Ambiente de Desenvolvimento - Hot Reload
+  # =================================================================
+  cat-transfer-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cat-transfer-dev
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - Node__Network__Host=0.0.0.0
+      - Node__Network__Port=8080
+    ports:
+      - "5000:5000"   # API/Web
+      - "8080:8080"   # P2P Network
+    volumes:
+      - .:/app
+      - /app/Node/bin
+      - /app/Node/obj
+      - ./test-files:/app/test-files
+    working_dir: /app/Node
+    command: dotnet watch run --api
+    networks:
+      - cat-transfer-dev
+    restart: unless-stopped
+
+  # =================================================================
+  # Peer para testes locais
+  # =================================================================
+  cat-transfer-peer-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cat-transfer-peer-dev
+    environment:
+      - DOTNET_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5001
+      - Node__Network__Host=0.0.0.0
+      - Node__Network__Port=8081
+    ports:
+      - "5001:5001"   # API/Web
+      - "8081:8081"   # P2P Network
+    volumes:
+      - .:/app
+      - /app/Node/bin
+      - /app/Node/obj
+      - ./test-files:/app/test-files
+    working_dir: /app/Node
+    command: dotnet watch run --api
+    networks:
+      - cat-transfer-dev
+    restart: unless-stopped
+
+networks:
+  cat-transfer-dev:
+    driver: bridge

@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # =================================================================
+  # Nó Principal - API e Interface Web
+  # =================================================================
+  cat-transfer-api:
+    build:
+      context: .
+      dockerfile: Node/Dockerfile
+    container_name: cat-transfer-api
+    environment:
+      - NODE_MODE=api
+      - NODE_HOST=0.0.0.0
+      - NODE_PORT=8080
+      - ASPNETCORE_URLS=http://+:5000
+      - DOTNET_ENVIRONMENT=Development
+      - Node__Network__Host=0.0.0.0
+      - Node__Network__Port=8080
+      - Node__Storage__DataDirectory=/app/data
+      - Node__Logging__LogDirectory=/app/logs
+    ports:
+      - "5000:5000"   # API/Web
+      - "8080:8080"   # P2P Network
+    volumes:
+      - cat-transfer-api-data:/app/data
+      - cat-transfer-api-logs:/app/logs
+      - ./test-files:/app/test-files
+    networks:
+      - cat-transfer-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/node/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =================================================================
+  # Nó Peer 1 - Para testes P2P
+  # =================================================================
+  cat-transfer-peer1:
+    build:
+      context: .
+      dockerfile: Node/Dockerfile
+    container_name: cat-transfer-peer1
+    environment:
+      - NODE_MODE=api
+      - NODE_HOST=0.0.0.0
+      - NODE_PORT=8081
+      - ASPNETCORE_URLS=http://+:5001
+      - DOTNET_ENVIRONMENT=Development
+      - Node__Network__Host=0.0.0.0
+      - Node__Network__Port=8081
+      - Node__Storage__DataDirectory=/app/data
+      - Node__Logging__LogDirectory=/app/logs
+      - WAIT_FOR=cat-transfer-api:8080
+    ports:
+      - "5001:5001"   # API/Web
+      - "8081:8081"   # P2P Network
+    volumes:
+      - cat-transfer-peer1-data:/app/data
+      - cat-transfer-peer1-logs:/app/logs
+      - ./test-files:/app/test-files
+    networks:
+      - cat-transfer-network
+    depends_on:
+      - cat-transfer-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/node/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =================================================================
+  # Nó Peer 2 - Para testes avançados
+  # =================================================================
+  cat-transfer-peer2:
+    build:
+      context: .
+      dockerfile: Node/Dockerfile
+    container_name: cat-transfer-peer2
+    environment:
+      - NODE_MODE=api
+      - NODE_HOST=0.0.0.0
+      - NODE_PORT=8082
+      - ASPNETCORE_URLS=http://+:5002
+      - DOTNET_ENVIRONMENT=Development
+      - Node__Network__Host=0.0.0.0
+      - Node__Network__Port=8082
+      - Node__Storage__DataDirectory=/app/data
+      - Node__Logging__LogDirectory=/app/logs
+      - WAIT_FOR=cat-transfer-api:8080
+    ports:
+      - "5002:5002"   # API/Web
+      - "8082:8082"   # P2P Network
+    volumes:
+      - cat-transfer-peer2-data:/app/data
+      - cat-transfer-peer2-logs:/app/logs
+      - ./test-files:/app/test-files
+    networks:
+      - cat-transfer-network
+    depends_on:
+      - cat-transfer-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/api/node/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =================================================================
+  # Prometheus - Monitoramento (Opcional)
+  # =================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cat-transfer-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - cat-transfer-network
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # =================================================================
+  # Grafana - Dashboards (Opcional)
+  # =================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cat-transfer-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana:/etc/grafana/provisioning
+    networks:
+      - cat-transfer-network
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+# =================================================================
+# Redes
+# =================================================================
+networks:
+  cat-transfer-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =================================================================
+# Volumes Persistentes
+# =================================================================
+volumes:
+  cat-transfer-api-data:
+    driver: local
+  cat-transfer-api-logs:
+    driver: local
+  cat-transfer-peer1-data:
+    driver: local
+  cat-transfer-peer1-logs:
+    driver: local
+  cat-transfer-peer2-data:
+    driver: local
+  cat-transfer-peer2-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

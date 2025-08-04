@@ -1,0 +1,33 @@
+# Configuração do Prometheus para Cat Transfer
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Cat Transfer API Nodes
+  - job_name: 'cat-transfer-api'
+    static_configs:
+      - targets: ['cat-transfer-api:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'cat-transfer-peer1'
+    static_configs:
+      - targets: ['cat-transfer-peer1:5001']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'cat-transfer-peer2'
+    static_configs:
+      - targets: ['cat-transfer-peer2:5002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -173,7 +173,9 @@ internal class Program
         services.AddSingleton<Infrastructure.Storage.Interfaces.IChunkStorage, Infrastructure.Storage.Implementations.LocalChunkStorage>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.ITempFileManager, Infrastructure.Storage.Implementations.TempFileManager>();
 
-        services.AddScoped<IFileTransferService, SimpleFileTransferService>();
+        services.AddSingleton<IFileTransferService, SimpleFileTransferService>();
+
+        // services.AddScoped<IFileTransferService, SimpleFileTransferService>();
         
         services.AddSingleton<ActorSystem>(provider =>
         {

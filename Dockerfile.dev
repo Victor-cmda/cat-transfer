@@ -1,0 +1,61 @@
+# =================================================================
+# Dockerfile para Desenvolvimento - Cat Transfer
+# Com hot reload e debugging
+# =================================================================
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0
+
+# Instalar dependências do sistema
+RUN apt-get update && apt-get install -y \
+    curl \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configurar diretório de trabalho
+WORKDIR /app
+
+# Criar usuário para desenvolvimento com diretório home
+RUN groupadd -r developer && \
+    useradd -r -g developer -m -d /home/developer -s /bin/bash developer && \
+    chown -R developer:developer /home/developer
+
+# Configurar variáveis de ambiente para .NET
+ENV DOTNET_CLI_HOME=/app/.dotnet
+ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+ENV PATH="$PATH:/app/.dotnet/tools"
+
+# Criar diretório para ferramentas .NET
+RUN mkdir -p /app/.dotnet/tools && \
+    chown -R developer:developer /app/.dotnet
+
+# Copiar arquivos de projeto primeiro (para cache de layers)
+COPY *.sln ./
+COPY Node/*.csproj Node/
+COPY Application/*.csproj Application/
+COPY Domain/*.csproj Domain/
+COPY Infrastructure/*.csproj Infrastructure/
+COPY Protocol/*.csproj Protocol/
+COPY Tests/*.csproj Tests/
+
+# Restaurar dependências como root primeiro
+RUN dotnet restore
+
+# Copiar código fonte
+COPY . .
+
+# Configurar permissões para o usuário developer
+RUN chown -R developer:developer /app
+
+# Mudar para usuário de desenvolvimento
+USER developer
+
+# Instalar ferramentas de desenvolvimento como usuário developer
+RUN dotnet tool install dotnet-watch --tool-path /app/.dotnet/tools
+RUN dotnet tool install dotnet-ef --tool-path /app/.dotnet/tools
+
+# Expor portas
+EXPOSE 5000 8080
+
+# Comando padrão para desenvolvimento
+CMD ["dotnet", "watch", "run", "--project", "Node", "--", "--api"]

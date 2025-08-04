@@ -8,9 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="Akka.Remote" Version="1.5.46" />
+    <PackageReference Include="Akka.Persistence" Version="1.5.46" />
+    <PackageReference Include="Akka.Persistence.Sqlite" Version="1.5.39" />
+    <PackageReference Include="Akka.Serialization.Hyperion" Version="1.5.46" />
     <PackageReference Include="BouncyCastle" Version="1.8.9" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.7" />
     <PackageReference Include="NSec.Cryptography" Version="25.4.0" />
+    <PackageReference Include="System.IO.Compression" Version="4.3.0" />
   </ItemGroup>
 
   <ItemGroup>

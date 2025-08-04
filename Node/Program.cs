@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Serilog;
+using Akka.Hosting;
 using Node.Configuration;
 using Node.Services;
 using Node.Network;
@@ -165,6 +166,11 @@ internal class Program
 
         services.AddScoped<Domain.Services.IChecksumService, Domain.Services.MultiAlgorithmChecksumService>();
         services.AddScoped<Domain.Services.IChunkingStrategy, Domain.Services.DefaultChunkingStrategy>();
+
+        services.AddSingleton<Infrastructure.Storage.Interfaces.IMetadataStore, Infrastructure.Storage.Implementations.SimpleMetadataStore>();
+        services.AddSingleton<Infrastructure.Storage.Interfaces.IFileRepository, Infrastructure.Storage.Implementations.LocalFileRepository>();
+        services.AddSingleton<Infrastructure.Storage.Interfaces.IChunkStorage, Infrastructure.Storage.Implementations.LocalChunkStorage>();
+        services.AddSingleton<Infrastructure.Storage.Interfaces.ITempFileManager, Infrastructure.Storage.Implementations.TempFileManager>();
 
         services.AddScoped<IFileTransferService, SimpleFileTransferService>();
 

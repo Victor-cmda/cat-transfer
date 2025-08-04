@@ -12,7 +12,7 @@
     <PackageReference Include="Akka.Hosting" Version="1.5.46" />
     <PackageReference Include="Akka.Remote" Version="1.5.46" />
     <PackageReference Include="Akka.Cluster" Version="1.5.46" />
-    <PackageReference Include="Microsoft.AspNetCore.App" />
+
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.7" />

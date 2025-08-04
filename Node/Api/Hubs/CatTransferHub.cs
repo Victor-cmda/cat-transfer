@@ -181,21 +181,46 @@ public class CatTransferNotificationService : ICatTransferNotificationService
         });
     }
 
+    private readonly DateTime _startTime = DateTime.UtcNow;
+    private readonly Dictionary<string, TransferMetrics> _transferMetrics = new();
+
     private string CalculateSpeed(long bytesTransferred)
     {
-        return "0 MB/s"; 
+        var elapsed = (DateTime.UtcNow - _startTime).TotalSeconds;
+        if (elapsed <= 0) return "0 MB/s";
+        
+        var speedBytesPerSecond = bytesTransferred / elapsed;
+        var speedMBPerSecond = speedBytesPerSecond / (1024.0 * 1024.0);
+        
+        return speedMBPerSecond switch
+        {
+            >= 1.0 => $"{speedMBPerSecond:F2} MB/s",
+            >= 0.001 => $"{speedMBPerSecond * 1024:F2} KB/s",
+            _ => $"{speedBytesPerSecond:F0} B/s"
+        };
     }
 
     private TimeSpan CalculateETA(double progress, long totalBytes, long bytesTransferred)
     {
+        if (progress <= 0 || progress >= 100) return TimeSpan.Zero;
         
-        if (progress <= 0) return TimeSpan.Zero;
+        var elapsed = (DateTime.UtcNow - _startTime).TotalSeconds;
+        if (elapsed <= 0) return TimeSpan.Zero;
         
         var remainingBytes = totalBytes - bytesTransferred;
-        var currentSpeed = bytesTransferred / 1.0; 
+        var currentSpeedBytesPerSecond = bytesTransferred / elapsed;
         
-        if (currentSpeed <= 0) return TimeSpan.Zero;
+        if (currentSpeedBytesPerSecond <= 0) return TimeSpan.Zero;
         
-        return TimeSpan.FromSeconds(remainingBytes / currentSpeed);
+        var estimatedSecondsRemaining = remainingBytes / currentSpeedBytesPerSecond;
+        return TimeSpan.FromSeconds(estimatedSecondsRemaining);
+    }
+
+    private class TransferMetrics
+    {
+        public DateTime StartTime { get; set; } = DateTime.UtcNow;
+        public long InitialBytes { get; set; }
+        public DateTime LastUpdate { get; set; } = DateTime.UtcNow;
+        public long LastBytes { get; set; }
     }
 }

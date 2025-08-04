@@ -42,7 +42,7 @@ namespace Infrastructure.Actors
                 FileRepositoryStats = fileRepoStats,
                 ChunkStorageStats = chunkStorageStats,
                 TotalActors = 2,
-                SystemUptime = DateTime.UtcNow - DateTime.UtcNow.AddHours(-1) // Simplified uptime
+                SystemUptime = DateTime.UtcNow - DateTime.UtcNow.AddHours(-1)
             };
         }
 

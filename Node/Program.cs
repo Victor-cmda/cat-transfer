@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Serilog;
 using Akka.Hosting;
+using Akka.Actor;
 using Node.Configuration;
 using Node.Services;
 using Node.Network;
@@ -173,6 +174,14 @@ internal class Program
         services.AddSingleton<Infrastructure.Storage.Interfaces.ITempFileManager, Infrastructure.Storage.Implementations.TempFileManager>();
 
         services.AddScoped<IFileTransferService, SimpleFileTransferService>();
+        
+        services.AddSingleton<ActorSystem>(provider =>
+        {
+            var actorSystem = ActorSystem.Create("CatTransferActorSystem");
+            return actorSystem;
+        });
+        services.AddSingleton<Application.Actors.ApplicationActorSystem>();
+        services.AddSingleton<Application.Services.INetworkService, Application.Services.NetworkService>();
 
         services.AddSingleton<INodeService, NodeService>();
         services.AddSingleton<IP2PNetworkManager, P2PNetworkManager>();

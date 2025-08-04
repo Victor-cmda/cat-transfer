@@ -234,10 +234,37 @@ public class P2PNetworkManager : IP2PNetworkManager
 
     private Task StartListeningAsync(NetworkConfiguration config)
     {
-        _listener = new TcpListener(IPAddress.Parse(config.Host), config.Port);
+        IPAddress ipAddress;
+        if (config.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+            config.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+        {
+            ipAddress = IPAddress.Loopback;
+        }
+        else if (config.Host.Equals("0.0.0.0", StringComparison.OrdinalIgnoreCase))
+        {
+            ipAddress = IPAddress.Any;
+        }
+        else if (!IPAddress.TryParse(config.Host, out ipAddress!))
+        {
+            try
+            {
+                var hostEntry = Dns.GetHostEntry(config.Host);
+                ipAddress = hostEntry.AddressList.FirstOrDefault(addr => addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                           ?? hostEntry.AddressList.FirstOrDefault()
+                           ?? IPAddress.Loopback;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Falha ao resolver hostname {Host}, usando loopback", config.Host);
+                ipAddress = IPAddress.Loopback;
+            }
+        }
+
+        _listener = new TcpListener(ipAddress, config.Port);
         _listener.Start();
 
-        _logger.LogInformation("Servidor TCP iniciado em {Host}:{Port}", config.Host, config.Port);
+        _logger.LogInformation("Servidor TCP iniciado em {Host}:{Port} (resolvido para {ResolvedIP})", 
+            config.Host, config.Port, ipAddress);
 
         _ = Task.Run(async () =>
         {

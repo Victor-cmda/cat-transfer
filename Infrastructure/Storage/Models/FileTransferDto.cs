@@ -43,9 +43,18 @@ namespace Infrastructure.Storage.Models
         public FileTransfer ToDomain()
         {
             var chunks = Chunks.Select(c => c.ToDomain());
-            var fileTransfer = new FileTransfer(Id, Meta, chunks, Initiator);
             
-            return fileTransfer;
+            return FileTransfer.FromPersistence(
+                Id,
+                Meta,
+                chunks,
+                Status,
+                Initiator,
+                CreatedAt,
+                StartedAt,
+                CompletedAt,
+                Sources
+            );
         }
     }
     
@@ -83,17 +92,16 @@ namespace Infrastructure.Storage.Models
         
         public ChunkState ToDomain()
         {
-            var chunkState = new ChunkState(Id, Priority);
-            
-            foreach (var nodeId in AvailableFrom)
-            {
-                chunkState.AddAvailableSource(nodeId);
-            }
-            
-            // Note: This is simplified - you might need to expose more methods in ChunkState
-            // or create a factory method to restore full state
-            
-            return chunkState;
+            return ChunkState.FromPersistence(
+                Id,
+                Received,
+                ReceivedAt,
+                AvailableFrom,
+                CurrentSource,
+                RetryCount,
+                Priority,
+                LastRequestedAt
+            );
         }
     }
 }

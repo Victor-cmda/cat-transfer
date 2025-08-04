@@ -13,7 +13,7 @@ namespace Domain.Aggregates.FileTransfer
         public FileMeta Meta { get; }
         public TransferStatus Status { get; private set; } = TransferStatus.Pending;
         public NodeId? Initiator { get; private set; }
-        public DateTimeOffset CreatedAt { get; }
+        public DateTimeOffset CreatedAt { get; private init; }
         public DateTimeOffset? StartedAt { get; private set; }
         public DateTimeOffset? CompletedAt { get; private set; }
 
@@ -27,6 +27,35 @@ namespace Domain.Aggregates.FileTransfer
             Initiator = initiator;
             CreatedAt = DateTimeOffset.UtcNow;
             _chunks.AddRange(chunks);
+        }
+
+        public static FileTransfer FromPersistence(
+            FileId id, 
+            FileMeta meta, 
+            IEnumerable<ChunkState> chunks,
+            TransferStatus status,
+            NodeId? initiator,
+            DateTimeOffset createdAt,
+            DateTimeOffset? startedAt,
+            DateTimeOffset? completedAt,
+            IEnumerable<NodeId> sources)
+        {
+            var fileTransfer = new FileTransfer(id, meta, chunks, initiator)
+            {
+                CreatedAt = createdAt
+            };
+            
+            fileTransfer.Status = status;
+            fileTransfer.StartedAt = startedAt;
+            fileTransfer.CompletedAt = completedAt;
+            fileTransfer.Initiator = initiator;
+            
+            foreach (var source in sources)
+            {
+                fileTransfer._sources.Add(source);
+            }
+            
+            return fileTransfer;
         }
 
         public void AddSource(NodeId sourceNode)

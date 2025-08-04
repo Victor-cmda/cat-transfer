@@ -23,6 +23,32 @@ namespace Domain.Aggregates.FileTransfer
             Priority = priority;
         }
 
+        public static ChunkState FromPersistence(
+            ChunkId id,
+            bool received,
+            DateTimeOffset? receivedAt,
+            IEnumerable<NodeId> availableFrom,
+            NodeId? currentSource,
+            int retryCount,
+            Priority priority,
+            DateTimeOffset? lastRequestedAt)
+        {
+            var chunkState = new ChunkState(id, priority);
+            
+            chunkState.Received = received;
+            chunkState.ReceivedAt = receivedAt;
+            chunkState.CurrentSource = currentSource;
+            chunkState.RetryCount = retryCount;
+            chunkState.LastRequestedAt = lastRequestedAt;
+            
+            foreach (var nodeId in availableFrom)
+            {
+                chunkState._availableFrom.Add(nodeId);
+            }
+            
+            return chunkState;
+        }
+
         public void AddAvailableSource(NodeId nodeId)
         {
             if (_availableFrom.Add(nodeId))

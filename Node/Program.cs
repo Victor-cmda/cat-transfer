@@ -164,8 +164,8 @@ internal class Program
         services.AddSingleton(nodeConfig);
         services.AddSingleton(configuration);
 
-        services.AddScoped<Domain.Services.IChecksumService, Domain.Services.MultiAlgorithmChecksumService>();
-        services.AddScoped<Domain.Services.IChunkingStrategy, Domain.Services.DefaultChunkingStrategy>();
+        services.AddTransient<Domain.Services.IChecksumService, Domain.Services.MultiAlgorithmChecksumService>();
+        services.AddTransient<Domain.Services.IChunkingStrategy, Domain.Services.DefaultChunkingStrategy>();
 
         services.AddSingleton<Infrastructure.Storage.Interfaces.IMetadataStore, Infrastructure.Storage.Implementations.SimpleMetadataStore>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.IFileRepository, Infrastructure.Storage.Implementations.LocalFileRepository>();

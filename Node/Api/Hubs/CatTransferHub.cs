@@ -70,12 +70,40 @@ public class CatTransferHub : Hub
 
     public async Task SubscribeToTransfer(string transferId)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, $"Transfer_{transferId}");
+        if (string.IsNullOrWhiteSpace(transferId))
+        {
+            await Clients.Caller.SendAsync("Error", new { Message = "Transfer ID cannot be empty" });
+            return;
+        }
+
+        try
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"Transfer_{transferId}");
+            await Clients.Caller.SendAsync("SubscribedToTransfer", new { TransferId = transferId });
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("Error", new { Message = "Failed to subscribe to transfer", Error = ex.Message });
+        }
     }
 
     public async Task UnsubscribeFromTransfer(string transferId)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Transfer_{transferId}");
+        if (string.IsNullOrWhiteSpace(transferId))
+        {
+            await Clients.Caller.SendAsync("Error", new { Message = "Transfer ID cannot be empty" });
+            return;
+        }
+
+        try
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Transfer_{transferId}");
+            await Clients.Caller.SendAsync("UnsubscribedFromTransfer", new { TransferId = transferId });
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("Error", new { Message = "Failed to unsubscribe from transfer", Error = ex.Message });
+        }
     }
 }
 

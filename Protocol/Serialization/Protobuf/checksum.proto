@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package catprotocol.messages.checksum;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.Checksum";
+
+// Checksum request
+message ChecksumRequestProto {
+  string checksum_request_id = 1;
+  catprotocol.messages.FileIdentifier file_id = 2;
+  string algorithm = 3;
+  repeated int64 specific_chunks = 4;
+  string transfer_id = 5;
+  bool verify_whole_file = 6;
+  int64 requested_at = 7;
+  int64 request_timeout_ms = 8;
+  string expected_response_type = 9;
+}
+
+// Checksum response
+message ChecksumResponseProto {
+  string checksum_request_id = 1;
+  string checksum_response_id = 2;
+  catprotocol.messages.FileIdentifier file_id = 3;
+  string algorithm = 4;
+  catprotocol.messages.ChecksumData file_checksum = 5;
+  map<int64, catprotocol.messages.ChecksumData> chunk_checksums = 6;
+  int64 verification_time_ms = 7;
+  int64 verified_at = 8;
+  bool is_success = 9;
+  catprotocol.messages.ErrorInfo error_info = 10;
+}
+
+// Chunk checksum verification
+message ChunkChecksumProto {
+  string transfer_id = 1;
+  string checksum_message_id = 2;
+  catprotocol.messages.ChunkIdentifier chunk_id = 3;
+  int64 sequence_number = 4;
+  catprotocol.messages.ChecksumData chunk_checksum = 5;
+  string algorithm = 6;
+  bool is_valid = 7;
+  string validation_error = 8;
+  int64 validated_at = 9;
+  int64 validation_time_ms = 10;
+}

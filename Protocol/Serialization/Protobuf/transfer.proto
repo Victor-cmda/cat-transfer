@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package catprotocol.messages.transfer;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.Transfer";
+
+// Transfer request
+message TransferRequestProto {
+  string transfer_id = 1;
+  catprotocol.messages.FileInfo file_info = 2;
+  int32 preferred_chunk_size = 3;
+  int64 request_timeout_ms = 4;
+  string expected_response_type = 5;
+  catprotocol.messages.Metadata transfer_options = 6;
+  bool resume_supported = 7;
+}
+
+// Transfer response
+message TransferResponseProto {
+  string transfer_id = 1;
+  string response_id = 2;
+  bool accepted = 3;
+  int32 suggested_chunk_size = 4;
+  repeated int64 missing_chunks = 5;
+  string rejection_reason = 6;
+  bool is_success = 7;
+  catprotocol.messages.ErrorInfo error_info = 8;
+  catprotocol.messages.Metadata response_options = 9;
+}
+
+// File metadata
+message FileMetadataProto {
+  string transfer_id = 1;
+  string metadata_id = 2;
+  catprotocol.messages.FileInfo file_info = 3;
+  int64 created_at = 4;
+  int64 modified_at = 5;
+  string mime_type = 6;
+  catprotocol.messages.Metadata extended_metadata = 7;
+}
+
+// File chunk
+message FileChunkProto {
+  string transfer_id = 1;
+  string chunk_message_id = 2;
+  catprotocol.messages.ChunkInfo chunk_info = 3;
+  string stream_id = 4;
+  int64 total_messages = 5;
+  bool is_last_message = 6;
+  bool is_compressed = 7;
+  string compression_algorithm = 8;
+}
+
+// Chunk acknowledgment
+message ChunkAckProto {
+  string transfer_id = 1;
+  string ack_id = 2;
+  catprotocol.messages.ChunkIdentifier chunk_id = 3;
+  int64 sequence_number = 4;
+  bool is_valid = 5;
+  string error_message = 6;
+  int64 received_at = 7;
+  bool require_acknowledgment = 8;
+  int64 acknowledgment_timeout_ms = 9;
+  int32 max_retries = 10;
+}
+
+// Chunk resend request
+message ChunkResendRequestProto {
+  string transfer_id = 1;
+  string resend_request_id = 2;
+  repeated int64 missing_sequence_numbers = 3;
+  string reason = 4;
+  int64 requested_at = 5;
+  int64 request_timeout_ms = 6;
+  string expected_response_type = 7;
+  int32 priority = 8;
+}
+
+// Transfer progress
+message TransferProgressProto {
+  string transfer_id = 1;
+  string progress_id = 2;
+  catprotocol.messages.ProgressInfo progress = 3;
+  int64 progress_timestamp = 4;
+  catprotocol.messages.StatusInfo transfer_status = 5;
+  repeated string active_chunks = 6;
+}
+
+// Transfer completion
+message TransferCompleteProto {
+  string transfer_id = 1;
+  string completion_id = 2;
+  bool is_success = 3;
+  catprotocol.messages.ChecksumData final_checksum = 4;
+  int64 total_bytes_transferred = 5;
+  int64 total_time_ms = 6;
+  string failure_reason = 7;
+  int64 completed_at = 8;
+  catprotocol.messages.Metadata completion_metadata = 9;
+}
+
+// Transfer cancellation
+message TransferCancelProto {
+  string transfer_id = 1;
+  string cancellation_id = 2;
+  string reason = 3;
+  bool allow_resume = 4;
+  int64 cancelled_at = 5;
+  catprotocol.messages.Metadata cancellation_metadata = 6;
+}

@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package catprotocol.messages.handshake;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.Handshake";
+
+// Handshake request
+message HandshakeRequestProto {
+  string handshake_id = 1;
+  string client_version = 2;
+  repeated string supported_capabilities = 3;
+  catprotocol.messages.Metadata client_metadata = 4;
+  repeated string requested_features = 5;
+  int64 request_timeout_ms = 6;
+  string expected_response_type = 7;
+}
+
+// Handshake response
+message HandshakeResponseProto {
+  string handshake_id = 1;
+  string server_version = 2;
+  repeated string accepted_capabilities = 3;
+  catprotocol.messages.Metadata server_metadata = 4;
+  repeated string granted_features = 5;
+  string session_token = 6;
+  bool is_success = 7;
+  catprotocol.messages.ErrorInfo error_info = 8;
+  int64 session_timeout_ms = 9;
+}
+
+// Handshake acknowledgment
+message HandshakeAckProto {
+  string handshake_id = 1;
+  string session_token = 2;
+  string ack_id = 3;
+  int64 connection_established = 4;
+  catprotocol.messages.StatusInfo connection_status = 5;
+}
+
+// Handshake failure
+message HandshakeFailureProto {
+  string handshake_id = 1;
+  string failure_id = 2;
+  int32 error_code = 3;
+  string error_message = 4;
+  string failure_reason = 5;
+  bool can_retry = 6;
+  int64 retry_after_ms = 7;
+  catprotocol.messages.ErrorInfo detailed_error = 8;
+}

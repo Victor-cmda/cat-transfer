@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package catprotocol.messages.keyexchange;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.KeyExchange";
+
+// Key exchange initiation
+message KeyExchangeInitProto {
+  string key_exchange_id = 1;
+  string algorithm = 2;
+  repeated string supported_algorithms = 3;
+  bytes public_key = 4;
+  bytes nonce = 5;
+  int64 request_timeout_ms = 6;
+  string expected_response_type = 7;
+  string key_derivation_function = 8;
+}
+
+// Key exchange response
+message KeyExchangeResponseProto {
+  string key_exchange_id = 1;
+  string algorithm = 2;
+  bytes public_key = 3;
+  bytes nonce = 4;
+  bytes response_nonce = 5;
+  bool is_success = 6;
+  catprotocol.messages.ErrorInfo error_info = 7;
+  string session_id = 8;
+}
+
+// Key exchange completion
+message KeyExchangeCompleteProto {
+  string key_exchange_id = 1;
+  string completion_id = 2;
+  bytes verification_hash = 3;
+  bytes response_nonce = 4;
+  int64 key_established = 5;
+  string shared_secret_hash = 6;
+  int64 key_expiry = 7;
+}
+
+// Key rotation request
+message KeyRotationProto {
+  string rotation_id = 1;
+  string current_key_id = 2;
+  bytes new_public_key = 3;
+  string reason = 4;
+  bytes rotation_nonce = 5;
+  int64 request_timeout_ms = 6;
+  string expected_response_type = 7;
+  bool force_rotation = 8;
+}

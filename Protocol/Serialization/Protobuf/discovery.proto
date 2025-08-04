@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package catprotocol.messages.discovery;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.Discovery";
+
+// Peer announcement message
+message PeerAnnouncementProto {
+  string announcement_id = 1;
+  string endpoint = 2;
+  catprotocol.messages.Metadata metadata = 3;
+  int32 time_to_live = 4;
+  string broadcast_scope = 5;
+  repeated string capabilities = 6;
+}
+
+// Peer discovery request
+message PeerDiscoveryProto {
+  string discovery_id = 1;
+  string requested_capability = 2;
+  int64 max_age_ms = 3;
+  int32 time_to_live = 4;
+  string broadcast_scope = 5;
+  repeated string filters = 6;
+}
+
+// Peer discovery response
+message PeerDiscoveryResponseProto {
+  string response_id = 1;
+  string discovery_id = 2;
+  repeated catprotocol.messages.PeerInfo discovered_peers = 3;
+  bool is_success = 4;
+  catprotocol.messages.ErrorInfo error_info = 5;
+  int32 total_peers_available = 6;
+}
+
+// Peer leave notification
+message PeerLeaveProto {
+  string leave_id = 1;
+  string reason = 2;
+  int32 grace_period_seconds = 3;
+  int32 time_to_live = 4;
+  string broadcast_scope = 5;
+  bool allow_reconnect = 6;
+}

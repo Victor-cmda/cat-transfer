@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package catprotocol.messages.control;
+
+import "common.proto";
+
+option csharp_namespace = "Protocol.Serialization.Protobuf.Generated.Control";
+
+// Heartbeat message
+message HeartbeatProto {
+  string heartbeat_id = 1;
+  catprotocol.messages.StatusInfo status = 2;
+  int64 uptime_ms = 3;
+  catprotocol.messages.Metadata system_info = 4;
+  repeated string active_transfers = 5;
+  int32 peer_count = 6;
+}
+
+// Error message
+message ErrorProto {
+  string error_id = 1;
+  int32 error_code = 2;
+  string error_description = 3;
+  string context = 4;
+  int64 error_timestamp = 5;
+  string severity = 6;
+  catprotocol.messages.ErrorInfo detailed_error = 7;
+  bool is_recoverable = 8;
+}
+
+// Acknowledgment message
+message AckProto {
+  string ack_id = 1;
+  string acknowledged_message_id = 2;
+  bool is_success = 3;
+  string status_message = 4;
+  int64 processing_time_ms = 5;
+  catprotocol.messages.Metadata ack_metadata = 6;
+}
+
+// Disconnect message
+message DisconnectProto {
+  string disconnect_id = 1;
+  string reason = 2;
+  int32 grace_period_seconds = 3;
+  bool allow_reconnect = 4;
+  string disconnect_type = 5;
+  catprotocol.messages.Metadata disconnect_metadata = 6;
+  repeated string cleanup_actions = 7;
+}

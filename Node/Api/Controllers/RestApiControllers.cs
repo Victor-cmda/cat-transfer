@@ -165,12 +165,15 @@ public class TransfersController : ControllerBase
     public async Task<ActionResult<IEnumerable<TransferDto>>> GetActiveTransfers()
     {
         var transfers = await _fileTransferService.GetActiveTransfersAsync();
-
-
-        var transferDtos = new List<TransferDto>
+        var transferDtos = transfers.ActiveTransfers.Select(t => new TransferDto
         {
-
-        };
+            TransferId = t.FileId.ToString(),
+            FileName = $"file-{t.FileId}",
+            Status = t.Status.ToString(),
+            Progress = (int)(t.CompletionPercentage * 100),
+            BytesTransferred = t.TransferredBytes.bytes,
+            TotalBytes = t.TotalBytes.bytes
+        }).ToList();
 
         return Ok(transferDtos);
     }

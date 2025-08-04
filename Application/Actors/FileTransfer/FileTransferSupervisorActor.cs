@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.Event;
 using Application.Messages;
 using Application.Actors.FileTransfer;
 using Domain.ValueObjects;
@@ -10,9 +11,12 @@ namespace Application.Actors.FileTransfer
     {
         private readonly Dictionary<FileId, IActorRef> _activeTransfers = new();
         private readonly Dictionary<FileId, FileTransferInfo> _transferMetadata = new();
+        private readonly ILoggingAdapter _logger;
 
         public FileTransferSupervisorActor()
         {
+            _logger = Context.GetLogger();
+            _logger.Info("FileTransferSupervisorActor iniciado");
             SetupHandlers();
         }
 
@@ -32,8 +36,11 @@ namespace Application.Actors.FileTransfer
 
         private void HandleStartFileTransfer(StartFileTransferCommand cmd)
         {
+            _logger.Info("Supervisor recebeu comando para iniciar transferência: {0}", cmd.FileId);
+            
             if (_activeTransfers.ContainsKey(cmd.FileId))
             {
+                _logger.Warning("Transferência já ativa para arquivo {0}", cmd.FileId);
                 Sender.Tell(new ApplicationError(
                     "TRANSFER_ALREADY_ACTIVE",
                     $"Transfer for file {cmd.FileId} is already active"));
@@ -50,6 +57,8 @@ namespace Application.Actors.FileTransfer
                 cmd.Meta,
                 cmd.InitiatorNode,
                 DateTime.UtcNow);
+
+            _logger.Info("FileTransferActor criado e adicionado aos ativos. Total: {0}", _activeTransfers.Count);
 
             Context.Watch(transferActor);
             
@@ -115,10 +124,14 @@ namespace Application.Actors.FileTransfer
 
         private void HandleGetActiveTransfers()
         {
+            _logger.Info("Consulta de transferências ativas. Registradas: {0}", _activeTransfers.Count);
+            
             var responses = new List<FileTransferStatusResponse>();
             
             foreach (var (fileId, _) in _activeTransfers)
             {
+                _logger.Info("Processando transferência ativa: {0}", fileId);
+                
                 if (_transferMetadata.TryGetValue(fileId, out var metadata))
                 {
                     responses.Add(new FileTransferStatusResponse(
@@ -129,16 +142,28 @@ namespace Application.Actors.FileTransfer
                         metadata.Meta.Size,
                         DateTime.UtcNow - metadata.StartedAt,
                         new List<NodeId>()));
+                        
+                    _logger.Info("Adicionada resposta para {0}", fileId);
+                }
+                else
+                {
+                    _logger.Warning("Metadados não encontrados para {0}", fileId);
                 }
             }
 
+            _logger.Info("Enviando {0} transferências ativas", responses.Count);
             Sender.Tell(new ActiveTransfersResponse(responses, responses.Count));
         }
 
         private void HandleTransferActorTerminated(FileTransferActorTerminated msg)
         {
-            _activeTransfers.Remove(msg.FileId);
-            _transferMetadata.Remove(msg.FileId);
+            _logger.Info("FileTransferActor terminado para {0}. Removendo das listas", msg.FileId);
+            
+            var removed1 = _activeTransfers.Remove(msg.FileId);
+            var removed2 = _transferMetadata.Remove(msg.FileId);
+            
+            _logger.Info("Remoção - ActiveTransfers: {0}, Metadata: {1}. Total restante: {2}", 
+                removed1, removed2, _activeTransfers.Count);
         }
 
         private void ForwardToTransferActor(object message)

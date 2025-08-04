@@ -173,10 +173,8 @@ internal class Program
         services.AddSingleton<Infrastructure.Storage.Interfaces.IChunkStorage, Infrastructure.Storage.Implementations.LocalChunkStorage>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.ITempFileManager, Infrastructure.Storage.Implementations.TempFileManager>();
 
-        services.AddSingleton<IFileTransferService, SimpleFileTransferService>();
+        services.AddSingleton<IFileTransferService, Application.Services.FileTransferService>();
 
-        // services.AddScoped<IFileTransferService, SimpleFileTransferService>();
-        
         services.AddSingleton<ActorSystem>(provider =>
         {
             var actorSystem = ActorSystem.Create("CatTransferActorSystem");

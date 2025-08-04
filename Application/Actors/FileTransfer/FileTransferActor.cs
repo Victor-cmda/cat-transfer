@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.Event;
 using Application.Messages;
 using Domain.ValueObjects;
 using Domain.Aggregates.FileTransfer;
@@ -15,15 +16,32 @@ namespace Application.Actors.FileTransfer
         private readonly NodeId? _initiatorNode;
         private Domain.Aggregates.FileTransfer.FileTransfer? _fileTransfer;
         private readonly Dictionary<ChunkId, IActorRef> _chunkActors = new();
+        private readonly ILoggingAdapter _logger;
 
         public FileTransferActor(FileId fileId, FileMeta fileMeta, NodeId? initiatorNode)
         {
             _fileId = fileId;
             _fileMeta = fileMeta;
             _initiatorNode = initiatorNode;
+            _logger = Context.GetLogger();
+            
+            _logger.Info("FileTransferActor criado para arquivo {0} (Size: {1}, ChunkSize: {2})", 
+                _fileId, _fileMeta.Size, _fileMeta.ChunkSize);
             
             SetupHandlers();
             InitializeFileTransfer();
+        }
+
+        protected override void PreStart()
+        {
+            _logger.Info("FileTransferActor iniciando para {0}", _fileId);
+            base.PreStart();
+        }
+
+        protected override void PostStop()
+        {
+            _logger.Info("FileTransferActor parando para {0}", _fileId);
+            base.PostStop();
         }
 
         private void SetupHandlers()
@@ -43,33 +61,68 @@ namespace Application.Actors.FileTransfer
 
         private void InitializeFileTransfer()
         {
-            var chunkingStrategy = new Domain.Services.DefaultChunkingStrategy();
-            var chunks = chunkingStrategy.CreateChunks(_fileId, _fileMeta.Size, _fileMeta.ChunkSize)
-                .Select(chunkId => new ChunkState(chunkId))
-                .ToList();
+            try
+            {
+                _logger.Info("Inicializando FileTransfer para {0}", _fileId);
+                
+                var chunkingStrategy = new Domain.Services.DefaultChunkingStrategy();
+                _logger.Info("Criando chunks para arquivo de {0} bytes com chunk size {1}", 
+                    _fileMeta.Size.bytes, _fileMeta.ChunkSize);
+                
+                var chunks = chunkingStrategy.CreateChunks(_fileId, _fileMeta.Size, _fileMeta.ChunkSize)
+                    .Select(chunkId => new ChunkState(chunkId))
+                    .ToList();
 
-            _fileTransfer = new Domain.Aggregates.FileTransfer.FileTransfer(
-                _fileId,
-                _fileMeta,
-                chunks,
-                _initiatorNode);
+                _logger.Info("Criados {0} chunks para o arquivo", chunks.Count);
+
+                _fileTransfer = new Domain.Aggregates.FileTransfer.FileTransfer(
+                    _fileId,
+                    _fileMeta,
+                    chunks,
+                    _initiatorNode);
+                
+                _logger.Info("FileTransfer inicializado com sucesso para {0}", _fileId);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Erro ao inicializar FileTransfer para {0}", _fileId);
+                Self.Tell(PoisonPill.Instance);
+            }
         }
 
         private void HandleStartTransfer(StartFileTransferCommand cmd)
         {
             try
             {
-                _fileTransfer?.Start(_initiatorNode);
+                _logger.Info("Iniciando transferência para {0}", _fileId);
+                
+                if (_fileTransfer == null)
+                {
+                    _logger.Error("FileTransfer não foi inicializado para {0}", _fileId);
+                    Sender.Tell(new ApplicationError(
+                        "TRANSFER_NOT_INITIALIZED",
+                        $"FileTransfer não foi inicializado para {_fileId}"));
+                    return;
+                }
+
+                _fileTransfer.Start(_initiatorNode);
+                _logger.Info("FileTransfer.Start() executado com sucesso");
                 
                 Sender.Tell(new AppMessages.FileTransferStarted(
                     _fileId,
                     _initiatorNode ?? NodeId.NewGuid(),
                     DateTime.UtcNow));
 
+                _logger.Info("FileTransferStarted enviado para o sender");
+
                 CreateChunkActors();
+                _logger.Info("Chunk actors criados");
+                
+                _logger.Info("HandleStartTransfer concluído com sucesso para {0}", _fileId);
             }
             catch (Exception ex)
             {
+                _logger.Error(ex, "❌ Erro em HandleStartTransfer para {0}", _fileId);
                 Sender.Tell(new ApplicationError(
                     "START_TRANSFER_FAILED",
                     $"Failed to start transfer for file {_fileId}",
@@ -228,16 +281,35 @@ namespace Application.Actors.FileTransfer
 
         private void CreateChunkActors()
         {
-            if (_fileTransfer == null) return;
-
-            foreach (var chunk in _fileTransfer.Chunks)
+            try
             {
-                var chunkActor = Context.ActorOf(
-                    ChunkActor.Props(chunk.Id, _fileId),
-                    $"chunk-{chunk.Id}");
+                _logger.Info("Criando chunk actors para {0}", _fileId);
+                
+                if (_fileTransfer == null) 
+                {
+                    _logger.Warning("FileTransfer é null, não é possível criar chunk actors");
+                    return;
+                }
 
-                _chunkActors[chunk.Id] = chunkActor;
-                Context.Watch(chunkActor);
+                var chunkCount = _fileTransfer.Chunks.Count;
+                _logger.Info("Criando {0} chunk actors", chunkCount);
+
+                foreach (var chunk in _fileTransfer.Chunks)
+                {
+                    var chunkActor = Context.ActorOf(
+                        ChunkActor.Props(chunk.Id, _fileId),
+                        $"chunk-{chunk.Id}");
+
+                    _chunkActors[chunk.Id] = chunkActor;
+                    Context.Watch(chunkActor);
+                }
+                
+                _logger.Info("{0} chunk actors criados com sucesso", _chunkActors.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Erro ao criar chunk actors para {0}", _fileId);
+                Self.Tell(PoisonPill.Instance);
             }
         }
 

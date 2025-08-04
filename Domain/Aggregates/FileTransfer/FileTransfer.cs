@@ -41,6 +41,18 @@ namespace Domain.Aggregates.FileTransfer
             }
         }
 
+        public async Task AddSourceAsync(NodeId sourceNode, CancellationToken cancellationToken = default)
+        {
+            if (_sources.Add(sourceNode))
+            {
+                foreach (var chunk in _chunks.Where(c => !c.Received))
+                {
+                    chunk.AddAvailableSource(sourceNode);
+                }
+                await AsyncDomainEvents.RaiseAsync(new FileTransferSourceAdded(Id, sourceNode), cancellationToken);
+            }
+        }
+
         public void RemoveSource(NodeId sourceNode)
         {
             if (_sources.Remove(sourceNode))
@@ -50,6 +62,18 @@ namespace Domain.Aggregates.FileTransfer
                     chunk.RemoveAvailableSource(sourceNode);
                 }
                 DomainEvents.Raise(new FileTransferSourceRemoved(Id, sourceNode));
+            }
+        }
+
+        public async Task RemoveSourceAsync(NodeId sourceNode, CancellationToken cancellationToken = default)
+        {
+            if (_sources.Remove(sourceNode))
+            {
+                foreach (var chunk in _chunks)
+                {
+                    chunk.RemoveAvailableSource(sourceNode);
+                }
+                await AsyncDomainEvents.RaiseAsync(new FileTransferSourceRemoved(Id, sourceNode), cancellationToken);
             }
         }
 
@@ -64,12 +88,32 @@ namespace Domain.Aggregates.FileTransfer
             }
         }
 
+        public async Task StartAsync(NodeId? initiator = null, CancellationToken cancellationToken = default)
+        {
+            if (Status == TransferStatus.Pending)
+            {
+                Status = TransferStatus.InProgress;
+                StartedAt = DateTimeOffset.UtcNow;
+                Initiator ??= initiator;
+                await AsyncDomainEvents.RaiseAsync(new FileTransferStarted(Id, Initiator ?? NodeId.NewGuid(), Meta.Size), cancellationToken);
+            }
+        }
+
         public void Pause(NodeId sender)
         {
             if (Status == TransferStatus.InProgress)
             {
                 Status = TransferStatus.Paused;
                 DomainEvents.Raise(new FileTransferPaused(Id, sender));
+            }
+        }
+
+        public async Task PauseAsync(NodeId sender, CancellationToken cancellationToken = default)
+        {
+            if (Status == TransferStatus.InProgress)
+            {
+                Status = TransferStatus.Paused;
+                await AsyncDomainEvents.RaiseAsync(new FileTransferPaused(Id, sender), cancellationToken);
             }
         }
 

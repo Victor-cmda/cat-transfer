@@ -19,15 +19,34 @@ RUN groupadd -r developer && \
     useradd -r -g developer -m -d /home/developer -s /bin/bash developer && \
     chown -R developer:developer /home/developer
 
-# Configurar variáveis de ambiente para .NET
-ENV DOTNET_CLI_HOME=/app/.dotnet
-ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-ENV PATH="$PATH:/app/.dotnet/tools"
+# Configurar variáveis de ambiente para .NET (isoladas no HOME do usuário)
+ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_RESTORE_DISABLE_PARALLEL=1 \
+    DOTNET_CLI_HOME=/home/developer \
+    NUGET_PACKAGES=/home/developer/.nuget/packages \
+    NUGET_HTTP_CACHE_PATH=/home/developer/.local/share/NuGet/http-cache \
+    PATH="$PATH:/home/developer/.dotnet/tools"
 
-# Criar diretório para ferramentas .NET
-RUN mkdir -p /app/.dotnet/tools && \
-    chown -R developer:developer /app/.dotnet
+# Criar diretórios para ferramentas e caches do .NET no HOME do usuário
+RUN mkdir -p /home/developer/.dotnet/tools \
+             /home/developer/.nuget/packages \
+             /home/developer/.nuget/NuGet \
+             /home/developer/.local/share/NuGet/http-cache && \
+    chown -R developer:developer /home/developer/.dotnet /home/developer/.nuget /home/developer/.local
+    
+# Criar NuGet.Config acessível pelo usuário developer
+RUN printf '%s\n' \
+    '<?xml version="1.0" encoding="utf-8"?>' \
+    '<configuration>' \
+    '  <packageSources>' \
+    '    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />' \
+    '  </packageSources>' \
+    '</configuration>' \
+    > /home/developer/.nuget/NuGet/NuGet.Config \
+ && chown developer:developer /home/developer/.nuget/NuGet/NuGet.Config \
+ && chmod 644 /home/developer/.nuget/NuGet/NuGet.Config
 
 # Copiar arquivos de projeto primeiro (para cache de layers)
 COPY *.sln ./
@@ -39,7 +58,7 @@ COPY Protocol/*.csproj Protocol/
 COPY Tests/*.csproj Tests/
 
 # Restaurar dependências como root primeiro
-RUN dotnet restore
+RUN dotnet restore && dotnet nuget locals http-cache --clear && dotnet nuget locals global-packages --list
 
 # Copiar código fonte
 COPY . .
@@ -50,9 +69,7 @@ RUN chown -R developer:developer /app
 # Mudar para usuário de desenvolvimento
 USER developer
 
-# Instalar ferramentas de desenvolvimento como usuário developer
-RUN dotnet tool install dotnet-watch --tool-path /app/.dotnet/tools
-RUN dotnet tool install dotnet-ef --tool-path /app/.dotnet/tools
+# Ferramentas opcionais: dotnet watch já está incluso no SDK 9; omitimos instalações para evitar travas do NuGet
 
 # Expor portas
 EXPOSE 5000 8080

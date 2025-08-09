@@ -9,6 +9,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: cat-transfer-dev
+    user: root
     environment:
       - DOTNET_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5000
@@ -19,11 +20,10 @@ services:
       - "8080:8080"   # P2P Network
     volumes:
       - .:/app
-      - /app/Node/bin
-      - /app/Node/obj
+      - ./Node/bin/Debug/net9.0:/run
       - ./test-files:/app/test-files
-    working_dir: /app/Node
-    command: dotnet watch run --api
+    working_dir: /run
+    command: ["dotnet", "Node.dll", "--api"]
     networks:
       - cat-transfer-dev
     restart: unless-stopped
@@ -36,6 +36,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: cat-transfer-peer-dev
+    user: root
     environment:
       - DOTNET_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://+:5001
@@ -46,11 +47,10 @@ services:
       - "8081:8081"   # P2P Network
     volumes:
       - .:/app
-      - /app/Node/bin
-      - /app/Node/obj
+      - ./Node/bin/Debug/net9.0:/run
       - ./test-files:/app/test-files
-    working_dir: /app/Node
-    command: dotnet watch run --api
+    working_dir: /run
+    command: ["dotnet", "Node.dll", "--api"]
     networks:
       - cat-transfer-dev
     restart: unless-stopped
@@ -58,3 +58,5 @@ services:
 networks:
   cat-transfer-dev:
     driver: bridge
+
+

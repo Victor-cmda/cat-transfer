@@ -1,9 +1,15 @@
 using Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 using Node.Configuration;
-using Node.Services;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
+using System.Text.Json;
+using Application.Actors;
+using Application.Messages;
+using Domain.Aggregates.FileTransfer;
+using Infrastructure.Storage.Interfaces;
+using Node.Services;
 
 namespace Node.Network;
 
@@ -22,14 +28,29 @@ public class P2PNetworkManager : IP2PNetworkManager
 {
     private readonly ILogger<P2PNetworkManager> _logger;
     private readonly Dictionary<NodeId, PeerConnection> _connectedPeers;
+    private readonly IChunkStorage _chunkStorage;
+    private readonly ApplicationActorSystem _actorSystem;
+    private readonly NodeConfiguration _nodeConfig;
+    private readonly JsonSerializerOptions _jsonOptions;
     private NetworkConfiguration? _config;
     private TcpListener? _listener;
     private bool _isStarted;
 
-    public P2PNetworkManager(ILogger<P2PNetworkManager> logger)
+    public P2PNetworkManager(ILogger<P2PNetworkManager> logger,
+        IChunkStorage chunkStorage,
+        ApplicationActorSystem actorSystem,
+        NodeConfiguration nodeConfig)
     {
         _logger = logger;
         _connectedPeers = new Dictionary<NodeId, PeerConnection>();
+        _chunkStorage = chunkStorage;
+        _actorSystem = actorSystem;
+        _nodeConfig = nodeConfig;
+        _jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            PropertyNameCaseInsensitive = true
+        };
     }
 
     public async Task StartAsync(NetworkConfiguration config)
@@ -47,9 +68,8 @@ public class P2PNetworkManager : IP2PNetworkManager
             _logger.LogInformation("Iniciando gerenciador de rede P2P em {Host}:{Port}", 
                 config.Host, config.Port);
 
-            await StartListeningAsync(config);
-
             _isStarted = true;
+            await StartListeningAsync(config);
             _logger.LogInformation("Gerenciador de rede P2P iniciado com sucesso");
         }
         catch (Exception ex)
@@ -124,7 +144,11 @@ public class P2PNetworkManager : IP2PNetworkManager
 
             _connectedPeers[nodeId] = peerConnection;
 
-            _ = Task.Run(() => ProcessPeerMessagesAsync(peerConnection));
+            _ = Task.Run(async () =>
+            {
+                await SendHelloAsync(peerConnection);
+                await ProcessPeerMessagesAsync(peerConnection);
+            });
 
             _logger.LogInformation("Conectado ao peer {Address}:{Port} com NodeId {NodeId}", 
                 address, port, nodeId);
@@ -212,18 +236,30 @@ public class P2PNetworkManager : IP2PNetworkManager
         if (!_isStarted)
             throw new InvalidOperationException("Gerenciador de rede não está iniciado");
 
-        if (!_connectedPeers.TryGetValue(peerId, out var peerConnection) || !peerConnection.IsConnected)
+        var peerConnection = _connectedPeers.Values.FirstOrDefault(p => p.RemoteNodeId == peerId && p.IsConnected);
+        if (peerConnection == null)
         {
-            _logger.LogWarning("Peer {PeerId} não está conectado", peerId);
-            return;
+            _connectedPeers.TryGetValue(peerId, out peerConnection);
+            if (peerConnection == null || !peerConnection.IsConnected)
+            {
+                _logger.LogWarning("Peer {PeerId} não está conectado", peerId);
+                return;
+            }
         }
 
         try
         {
-            _logger.LogDebug("Enviando mensagem para peer {PeerId}: {MessageType}", 
+            _logger.LogDebug("Enviando mensagem para peer {PeerId}: {MessageType}",
                 peerId, message.GetType().Name);
 
-            await Task.Delay(1);
+            if (peerConnection.TcpClient?.Connected != true)
+            {
+                _logger.LogWarning("Conexão TCP com {PeerId} não está ativa", peerId);
+                return;
+            }
+
+            // atualmente suportamos apenas mensagens JSON de envelope simples
+            await SendRawJsonAsync(peerConnection, message);
         }
         catch (Exception ex)
         {
@@ -313,6 +349,7 @@ public class P2PNetworkManager : IP2PNetworkManager
             _logger.LogInformation("Peer {NodeId} conectado de {Address}:{Port}", 
                 nodeId, endpoint.Address, endpoint.Port);
 
+            await SendHelloAsync(peerConnection);
             await ProcessPeerMessagesAsync(peerConnection);
         }
         catch (Exception ex)
@@ -330,18 +367,24 @@ public class P2PNetworkManager : IP2PNetworkManager
             var stream = peerConnection.TcpClient?.GetStream();
             if (stream == null) return;
 
-            var buffer = new byte[4096];
-
             while (peerConnection.IsConnected)
             {
-                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0)
+                // protocolo simples: 4 bytes de tamanho + JSON UTF8
+                var lengthBuf = new byte[4];
+                var read = await ReadExactAsync(stream, lengthBuf, 0, 4);
+                if (read == 0) break;
+                var size = BitConverter.ToInt32(lengthBuf, 0);
+                if (size <= 0 || size > 50_000_000) // 50MB de limite
                 {
+                    _logger.LogWarning("Tamanho de mensagem inválido: {Size}", size);
                     break;
                 }
+                var payload = new byte[size];
+                var got = await ReadExactAsync(stream, payload, 0, size);
+                if (got == 0) break;
 
-                _logger.LogDebug("Mensagem recebida do peer {NodeId}: {Bytes} bytes", 
-                    peerConnection.NodeId, bytesRead);
+                var json = Encoding.UTF8.GetString(payload);
+                await HandleIncomingJsonAsync(peerConnection, json);
             }
         }
         catch (Exception ex)
@@ -354,14 +397,150 @@ public class P2PNetworkManager : IP2PNetworkManager
             await DisconnectFromPeerAsync(peerConnection.NodeId);
         }
     }
+
+    private static async Task<int> ReadExactAsync(NetworkStream stream, byte[] buffer, int offset, int count)
+    {
+        var total = 0;
+        while (total < count)
+        {
+            var read = await stream.ReadAsync(buffer, offset + total, count - total);
+            if (read == 0) return 0;
+            total += read;
+        }
+        return total;
+    }
+
+    private async Task HandleIncomingJsonAsync(PeerConnection peer, string json)
+    {
+        try
+        {
+            var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("type", out var typeProp))
+            {
+                _logger.LogWarning("Mensagem sem tipo recebida de {Peer}", peer.NodeId);
+                return;
+            }
+            var type = typeProp.GetString();
+            switch (type)
+            {
+                case "hello":
+                    var hello = JsonSerializer.Deserialize<HelloEnvelope>(json, _jsonOptions);
+                    if (hello != null)
+                    {
+                        peer.RemoteNodeId = new NodeId(hello.NodeId);
+                        _logger.LogInformation("Handshake recebido: conexão {Local} ↔ remoto {Remote}", peer.NodeId, peer.RemoteNodeId);
+                    }
+                    break;
+                case "file_init":
+                    var init = JsonSerializer.Deserialize<FileInitEnvelope>(json, _jsonOptions);
+                    if (init == null) return;
+                    await HandleFileInitAsync(peer, init);
+                    break;
+                case "file_chunk":
+                    var envelope = JsonSerializer.Deserialize<FileChunkEnvelope>(json, _jsonOptions);
+                    if (envelope == null) return;
+                    await HandleFileChunkAsync(peer, envelope);
+                    break;
+                default:
+                    _logger.LogInformation("Mensagem desconhecida de {Peer}: {Type}", peer.NodeId, type);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao processar JSON de {Peer}", peer.NodeId);
+        }
+    }
+
+    private Task SendHelloAsync(PeerConnection peer)
+    {
+        try
+        {
+            var hello = new HelloEnvelope("hello", _nodeConfig.NodeId.ToString());
+            return SendRawJsonAsync(peer, hello);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falha ao enviar handshake para {Peer}", peer.NodeId);
+            return Task.CompletedTask;
+        }
+    }
+
+    private async Task SendRawJsonAsync(PeerConnection peer, object message)
+    {
+        if (peer.TcpClient?.Connected != true) return;
+        var stream = peer.TcpClient.GetStream();
+        var json = JsonSerializer.Serialize(message, _jsonOptions);
+        var data = Encoding.UTF8.GetBytes(json);
+        var lengthBytes = BitConverter.GetBytes(data.Length);
+        await stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+        await stream.WriteAsync(data, 0, data.Length);
+        await stream.FlushAsync();
+    }
+
+    private async Task HandleFileChunkAsync(PeerConnection peer, FileChunkEnvelope env)
+    {
+        var chunkId = new ChunkId(new FileId(env.FileId), env.Offset);
+        try
+        {
+            await _chunkStorage.StoreChunkAsync(chunkId, env.Data);
+
+            // encaminha para os atores para atualizar progresso
+            _actorSystem.FileTransferSupervisor.Tell(new StoreChunkCommand(chunkId, env.Data, new NodeId(env.SourceNodeId)), Akka.Actor.ActorRefs.NoSender);
+            _logger.LogDebug("Chunk {Chunk} armazenado de {Peer}", chunkId, peer.NodeId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao armazenar chunk {Chunk} de {Peer}", chunkId, peer.NodeId);
+        }
+    }
+
+    private async Task HandleFileInitAsync(PeerConnection peer, FileInitEnvelope env)
+    {
+        try
+        {
+            var fileId = new FileId(env.FileId);
+            var meta = new FileMeta(
+                name: env.FileName,
+                size: new ByteSize(env.FileSize),
+                chunkSize: env.ChunkSize,
+                hash: new Checksum(env.Checksum, env.ChecksumAlgorithm)
+            );
+
+            _actorSystem.FileTransferSupervisor.Tell(
+                new StartFileTransferCommand(fileId, meta, new NodeId(env.SourceNodeId)),
+                Akka.Actor.ActorRefs.NoSender);
+
+            _logger.LogInformation("file_init recebido de {Remote}. Transferência {FileId} iniciada com {Name} ({Size} bytes)",
+                peer.RemoteNodeId ?? peer.NodeId, env.FileId, env.FileName, env.FileSize);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao processar file_init para {FileId} de {Peer}", env.FileId, peer.NodeId);
+        }
+        await Task.CompletedTask;
+    }
 }
 
 internal class PeerConnection
 {
     public NodeId NodeId { get; set; } = NodeId.NewGuid();
+    public NodeId? RemoteNodeId { get; set; }
     public string Address { get; set; } = string.Empty;
     public int Port { get; set; }
     public TcpClient? TcpClient { get; set; }
     public DateTime ConnectedAt { get; set; }
     public bool IsConnected { get; set; }
 }
+
+internal record HelloEnvelope(string Type, string NodeId);
+internal record FileInitEnvelope(
+    string Type,
+    string FileId,
+    string FileName,
+    long FileSize,
+    int ChunkSize,
+    string SourceNodeId,
+    byte[] Checksum,
+    Domain.Enumerations.ChecksumAlgorithm ChecksumAlgorithm
+);

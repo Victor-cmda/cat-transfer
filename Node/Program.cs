@@ -168,7 +168,7 @@ internal class Program
         services.AddTransient<Domain.Services.IChecksumService, Domain.Services.MultiAlgorithmChecksumService>();
         services.AddTransient<Domain.Services.IChunkingStrategy, Domain.Services.DefaultChunkingStrategy>();
 
-        services.AddSingleton<Infrastructure.Storage.Interfaces.IMetadataStore, Infrastructure.Storage.Implementations.SimpleMetadataStore>();
+        services.AddSingleton<Infrastructure.Storage.Interfaces.IMetadataStore, Infrastructure.Storage.Implementations.FileMetadataStore>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.IFileRepository, Infrastructure.Storage.Implementations.LocalFileRepository>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.IChunkStorage, Infrastructure.Storage.Implementations.LocalChunkStorage>();
         services.AddSingleton<Infrastructure.Storage.Interfaces.ITempFileManager, Infrastructure.Storage.Implementations.TempFileManager>();
@@ -185,6 +185,7 @@ internal class Program
 
         services.AddSingleton<INodeService, NodeService>();
         services.AddSingleton<IP2PNetworkManager, P2PNetworkManager>();
+    services.AddSingleton<IOutboundTransferOrchestrator, OutboundTransferOrchestrator>();
         services.AddSingleton<CommandLineInterface>();
         services.AddSingleton<ICatTransferNotificationService, CatTransferNotificationService>();
     }

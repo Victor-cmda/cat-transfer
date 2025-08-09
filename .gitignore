@@ -365,3 +365,7 @@ FodyWeavers.xsd
 # Visual Studio Code settings
 .vscode/
 .dotnet
+.idea/.idea.cat-transfer/.idea/encodings.xml
+.idea/.idea.cat-transfer/.idea/indexLayout.xml
+.idea/.idea.cat-transfer/.idea/vcs.xml
+.idea/.idea.cat-transfer/.idea/.gitignore

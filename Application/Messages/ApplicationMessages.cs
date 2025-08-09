@@ -59,6 +59,11 @@ namespace Application.Messages
 
     public record GetActiveTransfersQuery : IApplicationMessage;
 
+    public record OutboundChunkSentNotice(
+        FileId FileId,
+        long BytesSentSoFar
+    ) : IFileTransferMessage;
+
     public record GetChunkAvailabilityQuery(
         ChunkId ChunkId
     ) : IChunkMessage;

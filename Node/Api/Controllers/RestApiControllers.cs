@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using Node.Services;
 using Node.Api.Hubs;
 using Application.Services;
 using Domain.ValueObjects;
+using Node.Services;
 
 namespace Node.Api.Controllers;
 
@@ -120,12 +120,14 @@ public class PeersController : ControllerBase
 public class TransfersController : ControllerBase
 {
     private readonly IFileTransferService _fileTransferService;
+    private readonly IOutboundTransferOrchestrator _outboundTransfer;
     private readonly IHubContext<CatTransferHub> _hubContext;
 
-    public TransfersController(IFileTransferService fileTransferService, IHubContext<CatTransferHub> hubContext)
+    public TransfersController(IFileTransferService fileTransferService, IHubContext<CatTransferHub> hubContext, IOutboundTransferOrchestrator outboundTransfer)
     {
         _fileTransferService = fileTransferService;
         _hubContext = hubContext;
+        _outboundTransfer = outboundTransfer;
     }
 
     [HttpPost]
@@ -133,16 +135,45 @@ public class TransfersController : ControllerBase
     {
         var fileId = new FileId(request.FileId);
         var targetNodeId = new NodeId(request.TargetNodeId);
+        if (request.FileSize <= 0)
+            return BadRequest(new { message = "FileSize deve ser maior que zero" });
+        if (string.IsNullOrWhiteSpace(request.FileName))
+            return BadRequest(new { message = "FileName é obrigatório" });
+        if (request.Checksum == null || request.Checksum.Length == 0)
+            return BadRequest(new { message = "Checksum é obrigatório" });
 
+        var chunkSize = Math.Clamp(request.ChunkSize ?? 64 * 1024, 4 * 1024, 4 * 1024 * 1024);
 
         var fileMeta = new Domain.Aggregates.FileTransfer.FileMeta(
             request.FileName,
             new Domain.ValueObjects.ByteSize(request.FileSize),
-            64 * 1024,
-            new Domain.ValueObjects.Checksum(new byte[32], Domain.Enumerations.ChecksumAlgorithm.Sha256)
+            chunkSize,
+            new Domain.ValueObjects.Checksum(request.Checksum, request.ChecksumAlgorithm)
         );
 
         var result = await _fileTransferService.StartTransferAsync(fileId, fileMeta, targetNodeId);
+
+        // caminho do arquivo de origem (opcional)
+        string? sourcePath = request.SourcePath;
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            // tentativas comuns: pasta mapeada no container e pasta local de testes
+            var candidates = new[]
+            {
+                Path.Combine("/app", "test-files", request.FileName), // Linux/container
+                Path.Combine(AppContext.BaseDirectory, "..", "test-files", request.FileName), // relativa
+                Path.Combine(Directory.GetCurrentDirectory(), "test-files", request.FileName) // local
+            };
+            sourcePath = candidates.FirstOrDefault(System.IO.File.Exists);
+        }
+
+        if (string.IsNullOrWhiteSpace(sourcePath) || !System.IO.File.Exists(sourcePath))
+        {
+            return BadRequest(new { message = $"Arquivo de origem não encontrado. Informe SourcePath válido para {request.FileName}." });
+        }
+
+        // dispara envio assíncrono dos chunks para o peer alvo
+        _ = _outboundTransfer.SendFileAsync(fileId, targetNodeId, fileMeta, sourcePath);
 
 
         await _hubContext.Clients.All.SendAsync("TransferStarted", new
@@ -157,7 +188,9 @@ public class TransfersController : ControllerBase
             TransferId = fileId.ToString(),
             FileName = request.FileName,
             Status = "Started",
-            Progress = 0
+            Progress = 0,
+            BytesTransferred = 0,
+            TotalBytes = request.FileSize
         });
     }
 
@@ -168,9 +201,9 @@ public class TransfersController : ControllerBase
         var transferDtos = transfers.ActiveTransfers.Select(t => new TransferDto
         {
             TransferId = t.FileId.ToString(),
-            FileName = $"file-{t.FileId}",
+            FileName = t.FileId.ToString(),
             Status = t.Status.ToString(),
-            Progress = (int)(t.CompletionPercentage * 100),
+            Progress = t.CompletionPercentage,
             BytesTransferred = t.TransferredBytes.bytes,
             TotalBytes = t.TotalBytes.bytes
         }).ToList();
@@ -179,10 +212,10 @@ public class TransfersController : ControllerBase
     }
 
     [HttpPost("{transferId}/pause")]
-    public async Task<ActionResult> PauseTransfer(string transferId)
+    public async Task<ActionResult> PauseTransfer(string transferId, [FromBody] TransferControlRequest body)
     {
         var fileId = new FileId(transferId);
-        var nodeId = new NodeId(Guid.NewGuid().ToString());
+        var nodeId = new NodeId(body?.RequestingNodeId ?? Guid.Empty.ToString());
 
         await _fileTransferService.PauseTransferAsync(fileId, nodeId);
 
@@ -193,10 +226,10 @@ public class TransfersController : ControllerBase
     }
 
     [HttpPost("{transferId}/resume")]
-    public async Task<ActionResult> ResumeTransfer(string transferId)
+    public async Task<ActionResult> ResumeTransfer(string transferId, [FromBody] TransferControlRequest body)
     {
         var fileId = new FileId(transferId);
-        var nodeId = new NodeId(Guid.NewGuid().ToString());
+        var nodeId = new NodeId(body?.RequestingNodeId ?? Guid.Empty.ToString());
 
         await _fileTransferService.ResumeTransferAsync(fileId, nodeId);
 
@@ -207,10 +240,10 @@ public class TransfersController : ControllerBase
     }
 
     [HttpDelete("{transferId}")]
-    public async Task<ActionResult> CancelTransfer(string transferId)
+    public async Task<ActionResult> CancelTransfer(string transferId, [FromBody] TransferControlRequest? body = null)
     {
         var fileId = new FileId(transferId);
-        var nodeId = new NodeId(Guid.NewGuid().ToString());
+        var nodeId = new NodeId(body?.RequestingNodeId ?? Guid.Empty.ToString());
 
         await _fileTransferService.CancelTransferAsync(fileId, nodeId);
 
@@ -258,4 +291,11 @@ public record StartTransferRequest(
     string FileId,
     string FileName,
     long FileSize,
-    string TargetNodeId);
+    string TargetNodeId,
+    byte[] Checksum,
+    Domain.Enumerations.ChecksumAlgorithm ChecksumAlgorithm,
+    int? ChunkSize,
+    string? RequestingNodeId,
+    string? SourcePath);
+
+public record TransferControlRequest(string? RequestingNodeId);

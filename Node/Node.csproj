@@ -31,4 +31,8 @@
     <ProjectReference Include="..\Protocol\Protocol.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Remove="**/*.resx" />
+  </ItemGroup>
+
 </Project>

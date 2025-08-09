@@ -24,6 +24,7 @@ public class NodeService : INodeService
     private readonly IP2PNetworkManager _networkManager;
     private readonly IFileTransferService _fileTransferService;
     private bool _isRunning;
+    private DateTime? _startedAt;
 
     public NodeService(
         ILogger<NodeService> logger,
@@ -61,6 +62,7 @@ public class NodeService : INodeService
             await ConnectToSeedNodesAsync();
 
             _isRunning = true;
+            _startedAt = DateTime.UtcNow;
             _logger.LogInformation("Nó P2P {NodeName} iniciado com sucesso", _configuration.NodeName);
         }
         catch (Exception ex)
@@ -86,6 +88,7 @@ public class NodeService : INodeService
             _logger.LogInformation("Gerenciador de rede P2P parado");
 
             _isRunning = false;
+            _startedAt = null;
             _logger.LogInformation("Nó P2P {NodeName} parado com sucesso", _configuration.NodeName);
         }
         catch (Exception ex)
@@ -103,6 +106,8 @@ public class NodeService : INodeService
     public async Task<NodeStatus> GetStatusAsync()
     {
         var peers = await GetConnectedPeersAsync();
+        var activeTransfers = await _fileTransferService.GetActiveTransfersAsync();
+        var totalBytes = activeTransfers.ActiveTransfers.Sum(t => t.TransferredBytes.bytes);
 
         return new NodeStatus
         {
@@ -110,9 +115,9 @@ public class NodeService : INodeService
             NodeName = _configuration.NodeName,
             IsRunning = _isRunning,
             ConnectedPeers = peers.Count(),
-            ActiveTransfers = 0,
-            TotalBytesTransferred = 0,
-            Uptime = TimeSpan.Zero
+            ActiveTransfers = activeTransfers.TotalCount,
+            TotalBytesTransferred = totalBytes,
+            Uptime = _isRunning && _startedAt.HasValue ? DateTime.UtcNow - _startedAt.Value : TimeSpan.Zero
         };
     }
 

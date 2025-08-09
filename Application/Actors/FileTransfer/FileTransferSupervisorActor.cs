@@ -4,6 +4,7 @@ using Application.Messages;
 using Application.Actors.FileTransfer;
 using Domain.ValueObjects;
 using Domain.Aggregates.FileTransfer;
+using Akka.Pattern;
 
 namespace Application.Actors.FileTransfer
 {
@@ -11,6 +12,7 @@ namespace Application.Actors.FileTransfer
     {
         private readonly Dictionary<FileId, IActorRef> _activeTransfers = new();
         private readonly Dictionary<FileId, FileTransferInfo> _transferMetadata = new();
+    private readonly Dictionary<FileId, long> _outboundProgress = new();
         private readonly ILoggingAdapter _logger;
 
         public FileTransferSupervisorActor()
@@ -27,9 +29,25 @@ namespace Application.Actors.FileTransfer
             Receive<ResumeFileTransferCommand>(cmd => HandleResumeFileTransfer(cmd));
             Receive<CancelFileTransferCommand>(cmd => HandleCancelFileTransfer(cmd));
             Receive<GetFileTransferStatusQuery>(query => HandleGetFileTransferStatus(query));
-            Receive<GetActiveTransfersQuery>(_ => HandleGetActiveTransfers());
+            ReceiveAsync<GetActiveTransfersQuery>(async _ => await HandleGetActiveTransfersAsync());
+
+            Receive<StoreChunkCommand>(cmd =>
+            {
+                var fileId = cmd.ChunkId.file;
+                if (_activeTransfers.TryGetValue(fileId, out var actor))
+                {
+                    actor.Forward(cmd);
+                }
+                else
+                {
+                    Sender.Tell(new ApplicationError(
+                        "TRANSFER_NOT_FOUND",
+                        $"No active transfer found for file {fileId} to store chunk"));
+                }
+            });
 
             Receive<FileTransferActorTerminated>(msg => HandleTransferActorTerminated(msg));
+            Receive<OutboundChunkSentNotice>(notice => HandleOutboundChunkSent(notice));
             
             ReceiveAny(message => ForwardToTransferActor(message));
         }
@@ -122,33 +140,74 @@ namespace Application.Actors.FileTransfer
             }
         }
 
-        private void HandleGetActiveTransfers()
+        private async Task HandleGetActiveTransfersAsync()
         {
             _logger.Info("Consulta de transferências ativas. Registradas: {0}", _activeTransfers.Count);
-            
-            var responses = new List<FileTransferStatusResponse>();
-            
-            foreach (var (fileId, _) in _activeTransfers)
+
+            var tasks = new List<Task<IApplicationResponse>>();
+            var mapping = new List<(FileId fileId, IActorRef actor)>();
+
+            foreach (var kv in _activeTransfers)
             {
-                _logger.Info("Processando transferência ativa: {0}", fileId);
-                
-                if (_transferMetadata.TryGetValue(fileId, out var metadata))
+                var fileId = kv.Key;
+                var actor = kv.Value;
+                mapping.Add((fileId, actor));
+                tasks.Add(actor.Ask<IApplicationResponse>(new GetFileTransferStatusQuery(fileId), TimeSpan.FromSeconds(3)));
+            }
+
+            var responses = new List<FileTransferStatusResponse>();
+            try
+            {
+                var results = await Task.WhenAll(tasks);
+                for (int i = 0; i < results.Length; i++)
                 {
-                    responses.Add(new FileTransferStatusResponse(
-                        fileId,
-                        Domain.Enumerations.TransferStatus.InProgress,
-                        0.0,
-                        new ByteSize(0),
-                        metadata.Meta.Size,
-                        DateTime.UtcNow - metadata.StartedAt,
-                        new List<NodeId>()));
-                        
-                    _logger.Info("Adicionada resposta para {0}", fileId);
+                    switch (results[i])
+                    {
+                        case FileTransferStatusResponse status:
+                            // Mescla progresso de envio (quando este nó é o remetente)
+                            if (_outboundProgress.TryGetValue(status.FileId, out var sent))
+                            {
+                                var total = status.TotalBytes.bytes;
+                                var mergedTransferred = Math.Max(status.TransferredBytes.bytes, Math.Min(sent, total));
+                                var mergedPct = total > 0 ? (mergedTransferred / (double)total) * 100.0 : status.CompletionPercentage;
+                                status = new FileTransferStatusResponse(
+                                    status.FileId,
+                                    status.Status,
+                                    mergedPct,
+                                    new ByteSize(mergedTransferred),
+                                    status.TotalBytes,
+                                    status.Duration,
+                                    status.Sources
+                                );
+                            }
+                            responses.Add(status);
+                            break;
+                        case ApplicationError err:
+                            _logger.Warning("Falha ao obter status para {0}: {1}", mapping[i].fileId, err.Message);
+                            if (_transferMetadata.TryGetValue(mapping[i].fileId, out var meta))
+                            {
+                                var sentBytes = _outboundProgress.TryGetValue(mapping[i].fileId, out var s) ? s : 0L;
+                                var total = meta.Meta.Size.bytes;
+                                var pct = total > 0 ? (sentBytes / (double)total) * 100.0 : 0.0;
+                                responses.Add(new FileTransferStatusResponse(
+                                    mapping[i].fileId,
+                                    Domain.Enumerations.TransferStatus.InProgress,
+                                    pct,
+                                    new ByteSize(Math.Min(sentBytes, total)),
+                                    meta.Meta.Size,
+                                    DateTime.UtcNow - meta.StartedAt,
+                                    new List<NodeId>()));
+                            }
+                            break;
+                        default:
+                            _logger.Warning("Resposta inesperada de status para {0}: {1}", mapping[i].fileId, results[i].GetType().Name);
+                            break;
+                    }
                 }
-                else
-                {
-                    _logger.Warning("Metadados não encontrados para {0}", fileId);
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Erro ao agregar status das transferências");
             }
 
             _logger.Info("Enviando {0} transferências ativas", responses.Count);
@@ -161,9 +220,17 @@ namespace Application.Actors.FileTransfer
             
             var removed1 = _activeTransfers.Remove(msg.FileId);
             var removed2 = _transferMetadata.Remove(msg.FileId);
+            _outboundProgress.Remove(msg.FileId);
             
             _logger.Info("Remoção - ActiveTransfers: {0}, Metadata: {1}. Total restante: {2}", 
                 removed1, removed2, _activeTransfers.Count);
+        }
+
+        private void HandleOutboundChunkSent(OutboundChunkSentNotice notice)
+        {
+            _outboundProgress[notice.FileId] = Math.Max(
+                _outboundProgress.TryGetValue(notice.FileId, out var cur) ? cur : 0L,
+                notice.BytesSentSoFar);
         }
 
         private void ForwardToTransferActor(object message)
